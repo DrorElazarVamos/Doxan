@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sargel - Stereo Vision Ruler</title>
+    <style>
+        :root {
+            --primary: #2a9d8f;
+            --secondary: #e76f51;
+            --dark: #1e3d59;
+            --light: #f0f4f8;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: var(--light);
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+        h1 {
+            color: var(--dark);
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        p.subtitle {
+            text-align: center;
+            color: #666;
+            max-width: 600px;
+            margin-bottom: 30px;
+        }
+
+        /* Layout */
+        #top-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            width: 100%;
+            max-width: 1200px;
+            justify-content: center;
+        }
+        
+        .panel {
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Left Column: Video */
+        .video-box {
+            flex: 2;
+            min-width: 300px;
+            align-items: center;
+        }
+        
+        /* Right Column: Controls & Data */
+        #main-container {
+            flex: 1;
+            min-width: 280px;
+            gap: 20px;
+        }
+
+        /* Video Elements */
+        .viewport-container {
+            position: relative;
+            width: 100%;
+            max-width: 640px;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            aspect-ratio: 4/3; /* Maintain standard webcam aspect ratio */
+        }
+        #videoElement, #capturedFrameCanvas {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        #capturedFrameCanvas {
+            display: none;
+            cursor: crosshair;
+        }
+        
+        /* Overlay Instructions */
+        .overlay-text {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.6);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            pointer-events: none;
+        }
+
+        /* Controls */
+        .controls {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+            width: 100%;
+            justify-content: center;
+        }
+        button {
+            padding: 12px 20px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+        .btn-primary { background-color: var(--primary); color: white; }
+        .btn-primary:hover { background-color: #218c7c; }
+        .btn-secondary { background-color: #999; color: white; }
+        .btn-secondary:hover { background-color: #777; }
+        .btn-action { 
+            background-color: var(--secondary); 
+            color: white; 
+            width: 100%;
+            font-size: 1.1em;
+            margin-top: 10px;
+            display: none; /* Hidden until ready */
+        }
+        .btn-action:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(231, 111, 81, 0.3); }
+        .btn-action:disabled { background-color: #ccc; transform: none; box-shadow: none; }
+
+        /* Inputs */
+        .input-group {
+            margin-bottom: 15px;
+        }
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: var(--dark);
+        }
+        .input-group input {
+            width: 90%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 1em;
+        }
+        .hint {
+            font-size: 0.8em;
+            color: #777;
+            margin-top: 4px;
+            display: block;
+        }
+
+        /* Metrics */
+        .metric-box {
+            text-align: center;
+            padding: 15px;
+            background: #f8fbfb;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+        }
+        .metric-value {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: var(--secondary);
+            display: block;
+        }
+        .metric-label {
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #666;
+        }
+
+        /* Saved Frames List */
+        #savedFramesContainer {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .saved-frame-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: #f4f4f4;
+            padding: 5px;
+            border-radius: 6px;
+            border-left: 4px solid var(--primary);
+        }
+        .saved-frame-item img {
+            height: 50px;
+            width: auto;
+            border-radius: 4px;
+        }
+        .saved-frame-info {
+            font-size: 0.9em;
+        }
+
+    </style>
+</head>
+<body>
+
+    <h1>Sargel <span style="font-size:0.6em; color:var(--secondary)">v2.0</span></h1>
+    <p class="subtitle">Measure distance using Stereo Vision. Take two photos of the same object, moving the camera slightly between shots.</p>
+
+    <div id="top-container">
+        
+        <div class="panel video-box">
+            <div class="viewport-container">
+                <video id="videoElement" autoplay playsinline muted></video>
+                <canvas id="capturedFrameCanvas"></canvas>
+                <div id="instructionText" class="overlay-text">Step 1: Capture first angle</div>
+            </div>
+
+            <div class="controls">
+                <button id="captureFrame" class="btn-primary">📸 Capture Frame</button>
+                <button id="saveFrame" class="btn-primary" style="display: none;">💾 Confirm & Draw Next</button>
+                <button id="retakeFrame" class="btn-secondary" style="display: none;">↺ Retake</button>
+            </div>
+        </div>
+
+        <div id="main-container">
+            
+            <div class="panel">
+                <h3>⚙️ Calibration</h3>
+                <div class="input-group">
+                    <label>Camera Movement (Baseline)</label>
+                    <input type="number" id="baselineInput" value="10" step="0.1">
+                    <span class="hint">How many <strong>cm</strong> did you move the camera sideways between Frame 1 and 2?</span>
+                </div>
+                <div class="input-group">
+                    <label>Field of View (Approx)</label>
+                    <input type="number" id="fovInput" value="65" disabled style="background:#eee">
+                    <span class="hint">Standard webcam FOV (Degrees)</span>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="metric-box">
+                    <span class="metric-label">Calculated Distance</span>
+                    <span id="distanceOutput" class="metric-value">--</span>
+                    <span style="color:#999">Centimeters</span>
+                </div>
+                
+                <button id="processFramesButton" class="btn-action">
+                    🚀 Calculate Distance
+                </button>
+            </div>
+
+            <div class="panel">
+                <h3>Captured Frames</h3>
+                <div id="savedFramesContainer">
+                    <div style="padding:10px; color:#999; font-style:italic;" id="emptyListMsg">No frames captured yet.</div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // --- Variables ---
+        const video = document.getElementById('videoElement');
+        const capturedFrameCanvas = document.getElementById('capturedFrameCanvas');
+        const ctx = capturedFrameCanvas.getContext('2d');
+        
+        // Buttons
+        const captureFrameBtn = document.getElementById('captureFrame');
+        const saveFrameBtn = document.getElementById('saveFrame');
+        const retakeFrameBtn = document.getElementById('retakeFrame');
+        const processFramesButton = document.getElementById('processFramesButton');
+        
+        // Output
+        const savedFramesContainer = document.getElementById('savedFramesContainer');
+        const distanceOutput = document.getElementById('distanceOutput');
+        const instructionText = document.getElementById('instructionText');
+        const emptyListMsg = document.getElementById('emptyListMsg');
+
+        // Logic State
+        const MAX_FRAMES = 2;
+        let savedFramesData = []; 
+        let currentFrameImage = null; // Stores the raw Image object
+        
+        // Drawing State
+        let isDrawing = false;
+        let startX, startY;
+        let currentBox = null;
+
+        // --- 1. Camera Init ---
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } } 
+                });
+                video.srcObject = stream;
+            } catch (err) {
+                alert("Camera access failed. Ensure you are on HTTPS.");
+                console.error(err);
+            }
+        }
+        startCamera();
+
+        // --- 2. Capture Logic ---
+        captureFrameBtn.addEventListener('click', () => {
+            if (video.readyState !== video.HAVE_ENOUGH_DATA) return;
+
+            // Pause video
+            video.pause();
+            
+            // Draw video frame to canvas
+            capturedFrameCanvas.width = video.videoWidth;
+            capturedFrameCanvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0);
+
+            // Save raw image for redrawing
+            currentFrameImage = new Image();
+            currentFrameImage.src = capturedFrameCanvas.toDataURL();
+
+            // Toggle UI
+            video.style.display = 'none';
+            capturedFrameCanvas.style.display = 'block';
+            captureFrameBtn.style.display = 'none';
+            saveFrameBtn.style.display = 'inline-block';
+            retakeFrameBtn.style.display = 'inline-block';
+            
+            instructionText.textContent = "Draw a box tightly around the object.";
+            
+            // Enable Drawing
+            initDrawing();
+        });
+
+        retakeFrameBtn.addEventListener('click', () => {
+            resetToLiveView();
+        });
+
+        function resetToLiveView() {
+            video.style.display = 'block';
+            capturedFrameCanvas.style.display = 'none';
+            captureFrameBtn.style.display = 'inline-block';
+            saveFrameBtn.style.display = 'none';
+            retakeFrameBtn.style.display = 'none';
+            
+            // Reset state
+            currentBox = null;
+            removeDrawing();
+            video.play();
+            
+            // Update Text
+            if(savedFramesData.length === 0) {
+                instructionText.textContent = "Step 1: Capture first angle";
+            } else {
+                instructionText.textContent = `Step 2: Move camera ${document.getElementById('baselineInput').value}cm RIGHT & Capture`;
+            }
+        }
+
+        // --- 3. Save Logic ---
+        saveFrameBtn.addEventListener('click', () => {
+            if (!currentBox) {
+                alert("Please draw a box around the object first!");
+                return;
+            }
+
+            // Save data
+            const frameId = savedFramesData.length + 1;
+            
+            // Create thumbnail for UI
+            const thumbCanvas = document.createElement('canvas');
+            thumbCanvas.width = capturedFrameCanvas.width;
+            thumbCanvas.height = capturedFrameCanvas.height;
+            const tCtx = thumbCanvas.getContext('2d');
+            tCtx.drawImage(capturedFrameCanvas, 0, 0);
+
+            const frameData = {
+                id: frameId,
+                image: currentFrameImage, // Raw image
+                box: { ...currentBox }, // Copy box coords
+                thumb: thumbCanvas.toDataURL() // Visual proof
+            };
+            
+            savedFramesData.push(frameData);
+            addFrameToUI(frameData);
+
+            // Logic Flow
+            if (savedFramesData.length < MAX_FRAMES) {
+                resetToLiveView();
+                alert(`Frame 1 Saved.\n\nNOW: Move your camera sideways exactly ${document.getElementById('baselineInput').value}cm.`);
+            } else {
+                // Done capturing
+                video.style.display = 'none';
+                capturedFrameCanvas.style.display = 'block';
+                captureFrameBtn.style.display = 'none';
+                saveFrameBtn.style.display = 'none';
+                retakeFrameBtn.style.display = 'none';
+                
+                instructionText.textContent = "Ready to Calculate!";
+                processFramesButton.style.display = 'block';
+                
+                // Auto-trigger calculation for better UX
+                setTimeout(() => processFramesButton.click(), 500);
+            }
+        });
+
+        function addFrameToUI(data) {
+            emptyListMsg.style.display = 'none';
+            const div = document.createElement('div');
+            div.className = 'saved-frame-item';
+            div.innerHTML = `
+                <img src="${data.thumb}" />
+                <div class="saved-frame-info">
+                    <strong>Frame ${data.id}</strong><br>
+                    Box Center X: ${Math.round(data.box.x + data.box.w/2)}
+                </div>
+            `;
+            savedFramesContainer.appendChild(div);
+        }
+
+        // --- 4. Processing / Math Logic (The "Actualization") ---
+        processFramesButton.addEventListener('click', () => {
+            if (savedFramesData.length < 2) return;
+
+            const f1 = savedFramesData[0];
+            const f2 = savedFramesData[1];
+
+            // 1. Calculate Center X of the box in both frames
+            const c1 = f1.box.x + (f1.box.w / 2);
+            const c2 = f2.box.x + (f2.box.w / 2);
+
+            // 2. Calculate Disparity (Absolute difference in pixels)
+            // Note: In real stereo vision, this is 'd'.
+            const disparity = Math.abs(c1 - c2);
+
+            if (disparity === 0) {
+                alert("The object didn't move in the frame! Did you move the camera?");
+                return;
+            }
+
+            // 3. Get Physical Constants
+            const baselineCm = parseFloat(document.getElementById('baselineInput').value);
+            const fovDegrees = parseFloat(document.getElementById('fovInput').value);
+            
+            // 4. Estimate Focal Length in Pixels
+            // Formula: F_px = (ImageWidth / 2) / tan(FOV / 2)
+            const imageWidth = capturedFrameCanvas.width;
+            const fovRadians = (fovDegrees * Math.PI) / 180;
+            const focalLengthPx = (imageWidth / 2) / Math.tan(fovRadians / 2);
+
+            // 5. Calculate Depth (Z)
+            // Formula: Z = (f * B) / d
+            const depthCm = (focalLengthPx * baselineCm) / disparity;
+
+            // 6. Update UI
+            distanceOutput.textContent = depthCm.toFixed(1);
+
+            // 7. Visual Feedback (Merge frames)
+            drawMergedResult(f1, f2, c1, c2);
+        });
+
+        function drawMergedResult(f1, f2, c1, c2) {
+            // Draw Frame 2 as background
+            ctx.drawImage(f2.image, 0, 0, capturedFrameCanvas.width, capturedFrameCanvas.height);
+            
+            // Draw Box 1 (Ghost - Red)
+            ctx.strokeStyle = 'rgba(231, 111, 81, 0.5)'; // Red transparent
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.strokeRect(f1.box.x, f1.box.y, f1.box.w, f1.box.h);
+            
+            // Draw Box 2 (Solid - Green)
+            ctx.strokeStyle = '#2a9d8f'; // Teal
+            ctx.lineWidth = 4;
+            ctx.setLineDash([]);
+            ctx.strokeRect(f2.box.x, f2.box.y, f2.box.w, f2.box.h);
+
+            // Draw line connecting centers
+            ctx.beginPath();
+            ctx.moveTo(c1, f1.box.y + f1.box.h/2);
+            ctx.lineTo(c2, f2.box.y + f2.box.h/2);
+            ctx.strokeStyle = "yellow";
+            ctx.stroke();
+
+            instructionText.textContent = `Disparity: ${Math.round(Math.abs(c1-c2))}px`;
+        }
+
+
+        // --- 5. Mouse/Touch Drawing Helpers ---
+        function initDrawing() {
+            capturedFrameCanvas.addEventListener('mousedown', startDraw);
+            capturedFrameCanvas.addEventListener('mousemove', draw);
+            capturedFrameCanvas.addEventListener('mouseup', endDraw);
+            
+            // Touch support for mobile
+            capturedFrameCanvas.addEventListener('touchstart', (e) => startDraw(e.touches[0]));
+            capturedFrameCanvas.addEventListener('touchmove', (e) => { e.preventDefault(); draw(e.touches[0]); });
+            capturedFrameCanvas.addEventListener('touchend', endDraw);
+        }
+
+        function removeDrawing() {
+            capturedFrameCanvas.removeEventListener('mousedown', startDraw);
+            // ... remove others if strictly necessary for cleanup
+        }
+
+        function getPos(e) {
+            const rect = capturedFrameCanvas.getBoundingClientRect();
+            const scaleX = capturedFrameCanvas.width / rect.width;
+            const scaleY = capturedFrameCanvas.height / rect.height;
+            return {
+                x: (e.clientX - rect.left) * scaleX,
+                y: (e.clientY - rect.top) * scaleY
+            };
+        }
+
+        function startDraw(e) {
+            isDrawing = true;
+            const pos = getPos(e);
+            startX = pos.x;
+            startY = pos.y;
+        }
+
+        function draw(e) {
+            if (!isDrawing) return;
+            const pos = getPos(e);
+            const w = pos.x - startX;
+            const h = pos.y - startY;
+
+            // Redraw image to clear previous rectangle
+            ctx.drawImage(currentFrameImage, 0, 0, capturedFrameCanvas.width, capturedFrameCanvas.height);
+            
+            // Draw new rectangle
+            ctx.strokeStyle = '#e76f51';
+            ctx.lineWidth = 4;
+            ctx.strokeRect(startX, startY, w, h);
+
+            currentBox = { x: startX, y: startY, w: w, h: h };
+            // Fix negative width/height if drawn backwards
+            if(currentBox.w < 0) { currentBox.x += currentBox.w; currentBox.w = Math.abs(currentBox.w); }
+            if(currentBox.h < 0) { currentBox.y += currentBox.h; currentBox.h = Math.abs(currentBox.h); }
+        }
+
+        function endDraw() {
+            isDrawing = false;
+        }
+    </script>
+</body>
+</html>
